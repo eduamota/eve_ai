@@ -166,7 +166,7 @@ data_final = data_final.drop('contacted_age', axis=1)
 #%%
 
 var_names = data_final.columns.tolist()
-categs = ['accountType','balance_currency','bank_account','card_account','cellNumber','city','country','domain','dormancy','gender','invalidSin','kyc_account','kyc_level','language','phoneNumber','postcode','status','street']
+categs = ['accountType','balance_currency','bank_account','card_account','cellNumber','city','country','domain','dormancy','gender','invalidSin','kyc_account','kyc_level','language','phoneNumber','postcode','status','street', 'contacted']
 
 #%%
 
@@ -177,7 +177,7 @@ quantit = [i for i in var_names if i not in categs]
 
 label = data_final['contacted']
 df_numerical = data_final[quantit]
-df_names = df_numerical .keys().tolist()
+df_names = df_numerical.keys().tolist()
 
 #%%
 
@@ -210,8 +210,11 @@ street,
                       label], axis=1)
     
 #%%
-    
+normalized_df.fillna(0, inplace=True)
 normalized_df.to_csv('accounts_normalized.csv', index = False)
+
+#%%
+label.unique()
 
 #%%
 
@@ -219,7 +222,7 @@ import tensorflow as tf
 import pandas as pd
 import numpy as np
 import os
-#from sklearn.cross_validation import train_test_split # for random split of train/test
+from sklearn.model_selection import train_test_split # for random split of train/test
 #%%
 
 FILE_PATH = 'accounts_normalized.csv'         # Path to .csv dataset 
@@ -228,7 +231,7 @@ print("Raw data loaded successfully...\n")
 
 #%%
 
-raw_data = normalized_df
+raw_data['contacted'] = raw_data['contacted'].astype(int)
 
 #%%
 
@@ -275,3 +278,126 @@ labels_[np.arange(N_INSTANCES), labels] = 1
 
 #%%
 
+data_train, data_test, labels_train, labels_test = train_test_split(data,labels_,test_size = TEST_SIZE,random_state = RANDOM_STATE)
+print("Data loaded and splitted successfully...\n")
+
+#%%
+
+n_input = N_INPUT                   # input n labels 
+n_hidden_1 = HIDDEN_SIZE            # 1st layer 
+n_hidden_2 = HIDDEN_SIZE            # 2nd layer
+n_hidden_3 = HIDDEN_SIZE            # 3rd layer 
+n_hidden_4 = HIDDEN_SIZE            # 4th layer 
+n_classes = N_CLASSES               # output m classes 
+
+#%%
+
+    # input shape is None * number of input
+X = tf.placeholder(tf.float32, [None, n_input])
+
+#%%
+
+# label shape is None * number of classes
+y = tf.placeholder(tf.float32, [None, n_classes])
+
+#%%
+
+dropout_keep_prob = tf.placeholder(tf.float32)
+
+#%%
+
+def DeepMLPClassifier(_X, _weights, _biases, dropout_keep_prob):
+    layer1 = tf.nn.dropout(tf.nn.tanh(tf.add(tf.matmul(_X, _weights['w1']), _biases['b1'])), dropout_keep_prob)
+    layer2 = tf.nn.dropout(tf.nn.tanh(tf.add(tf.matmul(layer1, _weights['w2']), _biases['b2'])), dropout_keep_prob)
+    layer3 = tf.nn.dropout(tf.nn.tanh(tf.add(tf.matmul(layer2, _weights['w3']), _biases['b3'])), dropout_keep_prob)
+    layer4 = tf.nn.dropout(tf.nn.tanh(tf.add(tf.matmul(layer3, _weights['w4']), _biases['b4'])), dropout_keep_prob)
+    out = ACTIVATION_FUNCTION_OUT(tf.add(tf.matmul(layer4, _weights['out']), _biases['out']))
+    return out
+
+#%%
+
+weights = {
+    'w1': tf.Variable(tf.random_normal([n_input, n_hidden_1],stddev=STDDEV)),
+    'w2': tf.Variable(tf.random_normal([n_hidden_1, n_hidden_2],stddev=STDDEV)),
+    'w3': tf.Variable(tf.random_normal([n_hidden_2, n_hidden_3],stddev=STDDEV)),
+    'w4': tf.Variable(tf.random_normal([n_hidden_3, n_hidden_4],stddev=STDDEV)),
+    'out': tf.Variable(tf.random_normal([n_hidden_4, n_classes],stddev=STDDEV)),   
+}
+biases = { 
+    'b1': tf.Variable(tf.random_normal([n_hidden_1])), 
+    'b2': tf.Variable(tf.random_normal([n_hidden_2])), 
+    'b3': tf.Variable(tf.random_normal([n_hidden_3])), 
+    'b4': tf.Variable(tf.random_normal([n_hidden_4])), 
+    'out': tf.Variable(tf.random_normal([n_classes])) 
+}
+
+#%%
+
+pred = DeepMLPClassifier(X, weights, biases, dropout_keep_prob)
+
+#%%
+
+cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=pred, labels=y))
+
+# Optimization op (backprop)
+optimizer = tf.train.AdamOptimizer(learning_rate = LEARNING_RATE).minimize(cost)
+
+#%%
+
+correct_prediction = tf.equal(tf.argmax(pred, 1), tf.argmax(y, 1))
+accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+print("Deep MLP networks has been built successfully...")
+print("Starting training...")
+
+#%%
+
+init_op = tf.global_variables_initializer() 
+
+#%%
+
+sess = tf.Session()
+sess.run(init_op)
+
+#%%
+
+for epoch in range(TRAINING_EPOCHS):
+    avg_cost = 0.0
+    total_batch = int(data_train.shape[0] / BATCH_SIZE)
+    # Loop over all batches
+    for i in range(total_batch):
+        randidx = np.random.randint(int(TRAIN_SIZE), size = BATCH_SIZE)
+        batch_xs = data_train[randidx, :]
+        batch_ys = labels_train[randidx, :]
+        # Fit using batched data
+        sess.run(optimizer, feed_dict={X: batch_xs, y: batch_ys, dropout_keep_prob: 0.9})
+        # Calculate average cost
+        avg_cost += sess.run(cost, feed_dict={X: batch_xs, y: batch_ys, dropout_keep_prob:1.})/total_batch
+    # Display progress
+    if epoch % DISPLAY_STEP == 0:
+        print("Epoch: %3d/%3d cost: %.9f" % (epoch, TRAINING_EPOCHS, avg_cost))
+        train_acc = sess.run(accuracy, feed_dict={X: batch_xs, y: batch_ys, dropout_keep_prob:1.})
+        print("Training accuracy: %.3f" % (train_acc))
+print("Your MLP model has been trained successfully.")
+
+#%%
+
+# Plot loss over time
+plt.subplot(221)
+plt.plot(i_data, cost_list, 'k--', label='Training loss', linewidth=1.0)
+plt.title('Cross entropy loss per iteration')
+plt.xlabel('Iteration')
+plt.ylabel('Cross entropy loss')
+plt.legend(loc='upper right')
+plt.grid(True)
+
+#%%
+                   
+# Plot train and test accuracy
+plt.subplot(222)
+plt.plot(i_data, acc_list, 'r--', label='Accuracy on the training set', linewidth=1.0)
+plt.title('Accuracy on the training set')
+plt.xlabel('Iteration')
+plt.ylabel('Accuracy')
+plt.legend(loc='upper right')
+plt.grid(True)
+plt.show()
